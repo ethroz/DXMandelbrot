@@ -7,7 +7,7 @@ namespace DXMandelBrot
         [STAThread]
         static void Main(string[] args)
         {
-            using (Game game = new Game())
+            using (Generator game = new Generator())
             {
                 game.Run();
             }

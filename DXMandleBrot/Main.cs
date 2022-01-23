@@ -1,25 +1,24 @@
 ﻿using SharpDX;
+using SharpDX.D3DCompiler;
 using SharpDX.Direct3D;
-using SharpDX.Windows;
+using SharpDX.Direct3D11;
 using SharpDX.DirectInput;
 using SharpDX.DXGI;
-using D3D11 = SharpDX.Direct3D11;
+using SharpDX.Windows;
 using System;
 using System.Collections.Generic;
-using Point = System.Drawing.Point;
-using Color = SharpDX.Color;
-using Colour = System.Drawing.Color;
-using System.Windows.Forms;
 using System.Drawing;
-using SharpDX.Direct3D11;
-using SharpDX.D3DCompiler;
-using System.Runtime.InteropServices;
 using System.Drawing.Imaging;
+using System.Runtime.InteropServices;
+using System.Threading;
 using System.Threading.Tasks;
+using System.Windows.Forms;
+using Color = SharpDX.Color;
+using D3D11 = SharpDX.Direct3D11;
 
 namespace DXMandelBrot
 {
-    public class Game : IDisposable
+    public class Generator : IDisposable
     {
         private RenderForm renderForm;
         private D3D11.Device device;
@@ -61,108 +60,116 @@ namespace DXMandelBrot
         private Texture2DDescription td;
         private DirectBitmap dbmp;
         private Texture2D texture;
+        private Queue<Action> ToDo = new Queue<Action>();
 
+        public bool Running = true;
         public bool RenderWithCPU = false;
-        public float elapsedTime;
-        private bool OneFrame = false;
-        private bool Debug = false;
-        private bool SkipFirst = true;
+        public double elapsedTime;
+        private bool OneFrameMode = false;
+        private bool RenderOnce = false;
         private System.Diagnostics.Stopwatch sw;
-        private long t1, t2;
-        private Vector3 Color = new Color(59, 131, 247).ToVector3();
-        private int Itterations = 100;
-        private Decimal2 Pan = new Decimal2 { X = -0.25M, Y = 0.0M };
-        private decimal Zoom = 2.0M;
+        private long t1, t2, t3, t4;
+        private Vector3 SelectedColor = new Color(59, 131, 247).ToVector3();
+        private int Iterations = 150;
+        private double IterationScale = 1.0;
+        private double StartingZoom = 2.0;
+        private Double2 StartingPosition = new Double2(0.00164372197625241, -0.822467633314415);
+        private Double2 Pan;
+        private double Zoom;
         private int Width;
         private int Height;
-        private int SampleCount = 1;
-        public enum WindowState { Normal, Minimized, Maximized, FullScreen };
-        private WindowState State = WindowState.Maximized;
+        public enum WindowState { Minimized, Normal, Maximized, FullScreen, NotSet };
+        private WindowState prevState = WindowState.NotSet;
+        public WindowState State = WindowState.Maximized;
         private int ResolutionIndex = 0;
-        private int[][] Resolutions = new int[8][]
-        {
-            new int[] { 3840, 2160 },
-            new int[] { 2560, 1440 },
-            new int[] { 1920, 1080 },
-            new int[] { 1280, 720 },
-            new int[] { 640, 360 },
-            new int[] { 320, 180},
-            new int[] { 128, 72},
-            new int[] { 64, 36}
-        };
-        private int ScreenHeight;
-        private List<long> Time = new List<long>();
+        private Double2 StartingPan;
+        private POINT StartingMousePos;
+        private bool MouseOnWindow;
+        private bool HasFocus;
+        private bool PanAllowed;
+        private bool MouseScrollMode = false;
+        private List<double> fps = new List<double>();
 
         private Mouse mouse;
         private Button[] buttons;
-        private POINT PrevMousePos;
-        public Decimal2 DeltaMousePos;
+        private POINT CurrentMousePos;
+        public POINT DeltaMousePos;
         public int DeltaMouseScroll;
         private Keyboard keyboard;
         private Chey[] cheyArray;
 
         private void Test()
         {
-            long sum = 0;
-            for (int i = 0; i < Time.Count; i++)
+            double sum = 0.0;
+            foreach (double d in fps)
             {
-                sum += Time[i];
+                sum += d;
             }
-            sum /= Time.Count;
-            Console.WriteLine("Average Time Per Frame: " + sum);
+            sum /= fps.Count;
+            print(1.0 / sum);
         }
 
-        public Game()
+        public Generator()
         {
-            //Test();
-            Width = Resolutions[ResolutionIndex][0];
-            Height = Resolutions[ResolutionIndex][1];
-            renderForm = new RenderForm("DXMandelBrot")
+            SetDimensions(ResolutionIndex);
+            renderForm = new RenderForm("DXMandelbrot")
             {
                 ClientSize = new Size(Width, Height),
-                AllowUserResizing = false
-                
+                AllowUserResizing = false,
+                MaximizeBox = true
             };
-            if (State == WindowState.FullScreen)
-            {
-                renderForm.TopMost = true;
-                renderForm.FormBorderStyle = FormBorderStyle.None;
-                renderForm.WindowState = FormWindowState.Maximized;
-            }
-            else if (State == WindowState.Maximized)
-            {
-                renderForm.WindowState = FormWindowState.Maximized;
-            }
-            else if (State == WindowState.Minimized)
-            {
-                renderForm.TopMost = false;
-                renderForm.FormBorderStyle = FormBorderStyle.FixedSingle;
-                renderForm.WindowState = FormWindowState.Minimized;
-            }
+            ReassignWindowState();
+            renderForm.FormClosing += RenderForm_FormClosing;
+            renderForm.GotFocus += RenderForm_GotFocus;
+            renderForm.LostFocus += RenderForm_LostFocus;
+            renderForm.Resize += RenderForm_Resize;
+            Zoom = 2.0 / Height;
+            Pan = new Double2(-0.5 * Width, -0.5 * Height) + new Double2(StartingPosition.X, -StartingPosition.Y) * Height / 2;
+            double zoomBefore = Zoom;
+            Zoom = StartingZoom / Height;
+            Double2 offset = new Double2(0.5 * Width, 0.5 * Height);
+            Pan = (Pan + offset) * zoomBefore / Zoom - offset;
 
-            InitializeMouse();
-            InitializeKeyboard();
-            InitializeDeviceResources();
-            if (RenderWithCPU) InitializeShaders2(); else InitializeShaders();
-            InitializeTriangle();
             sw = new System.Diagnostics.Stopwatch();
             sw.Start();
-            t1 = sw.ElapsedTicks;
-            dbmp = new DirectBitmap(Width, Height);
-            td = new Texture2DDescription
+            InitializeMouse();
+            InitializeKeyboard();
+            ChangeResolution(ResolutionIndex);
+            InitializeTriangle();
+        }
+
+        private void RenderForm_Resize(object sender, EventArgs e)
+        {
+            switch (renderForm.WindowState)
             {
-                Width = dbmp.Width,
-                Height = dbmp.Height,
-                ArraySize = 1,
-                BindFlags = BindFlags.ShaderResource,
-                Usage = ResourceUsage.Immutable,
-                CpuAccessFlags = CpuAccessFlags.None,
-                Format = Format.B8G8R8A8_UNorm,
-                MipLevels = 1,
-                OptionFlags = ResourceOptionFlags.None,
-                SampleDescription = new SampleDescription(1, 0),
-            };
-            ScreenHeight = Screen.FromControl(renderForm).Bounds.Height;
+                case FormWindowState.Minimized:
+                    State = WindowState.Minimized;
+                    break;
+                case FormWindowState.Normal:
+                    State = WindowState.Normal;
+                    break;
+                case FormWindowState.Maximized:
+                    if (renderForm.FormBorderStyle == FormBorderStyle.None)
+                        State = WindowState.FullScreen;
+                    else
+                        State = WindowState.Maximized;
+                    break;
+            }
+        }
+
+        private void RenderForm_LostFocus(object sender, EventArgs e)
+        {
+            HasFocus = false;
+        }
+
+        private void RenderForm_GotFocus(object sender, EventArgs e)
+        {
+            HasFocus = true;
+        }
+
+        private void RenderForm_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            Running = false;
         }
 
         private void InitializeMouse()
@@ -174,7 +181,7 @@ namespace DXMandelBrot
             buttons = new Button[allButtons.Length];
             for (int i = 0; i < allButtons.Length; i++)
                 buttons[i] = new Button();
-            GetCursorPos(out PrevMousePos);
+            GetCursorPos(out CurrentMousePos);
         }
 
         private void InitializeKeyboard()
@@ -208,10 +215,13 @@ namespace DXMandelBrot
             }
             viewport = new Viewport(0, 0, Width, Height);
             deviceContext.Rasterizer.SetViewport(viewport);
+            deviceContext.OutputMerger.SetRenderTargets(renderTargetView);
         }
 
         private void InitializeTriangle()
         {
+            if (triangleVertexBuffer != null)
+                triangleVertexBuffer.Dispose();
             if (RenderWithCPU)
                 triangleVertexBuffer = D3D11.Buffer.Create(device, BindFlags.VertexBuffer, texturedVertices);
             else
@@ -284,12 +294,12 @@ namespace DXMandelBrot
             ShaderBuffer = new ShaderBuffer
             {
                 Pan = (Double2)Pan,
-                Color = Color,
-                Itterations = Itterations,
+                Color = SelectedColor,
+                Iterations = Iterations,
                 Zoom = (double)Zoom,
                 Width = Width,
                 Height = Height,
-                SampleCount = SampleCount
+                ModdedTime = sw.ElapsedTicks % 60L,
             };
         }
 
@@ -316,15 +326,8 @@ namespace DXMandelBrot
                 buttons[i].Held = pressed;
                 buttons[i].Raised = !pressed;
             }
-            POINT CurrentMousePos;
+            DeltaMousePos = new POINT(state.X, state.Y);
             GetCursorPos(out CurrentMousePos);
-            if (State == WindowState.Normal)
-                DeltaMousePos = new Decimal2 { X = (decimal)(CurrentMousePos.X - PrevMousePos.X) / Resolutions[ResolutionIndex][1], Y = (decimal)(CurrentMousePos.Y - PrevMousePos.Y) / Resolutions[ResolutionIndex][1] };
-            else if (State == WindowState.FullScreen)
-                DeltaMousePos = new Decimal2 { X = (decimal)(CurrentMousePos.X - PrevMousePos.X) / renderForm.Height, Y = (decimal)(CurrentMousePos.Y - PrevMousePos.Y) / renderForm.Height };
-            else
-                DeltaMousePos = new Decimal2 { X = (decimal)(CurrentMousePos.X - PrevMousePos.X) / ScreenHeight, Y = (decimal)(CurrentMousePos.Y - PrevMousePos.Y) / (ScreenHeight - 20) };
-            PrevMousePos = CurrentMousePos;
             DeltaMouseScroll = state.Z / 120;
         }
 
@@ -394,184 +397,239 @@ namespace DXMandelBrot
 
         public void CycleWindowState()
         {
+            State = (WindowState)(((int)State + 1) % 4);
+        }
+
+        private void ReassignWindowState()
+        {
+            if (State == prevState)
+                return;
+            prevState = State;
             switch (State)
             {
                 case WindowState.Minimized:
-                    State = WindowState.Normal;
                     renderForm.TopMost = false;
-                    renderForm.FormBorderStyle = FormBorderStyle.FixedSingle;
-                    renderForm.WindowState = FormWindowState.Normal;
+                    renderForm.WindowState = FormWindowState.Minimized;
                     break;
                 case WindowState.Normal:
-                    State = WindowState.Maximized;
+                    renderForm.TopMost = false;
+                    renderForm.FormBorderStyle = FormBorderStyle.FixedSingle;
+                    renderForm.WindowState = FormWindowState.Maximized;
+                    renderForm.WindowState = FormWindowState.Normal;
+                    break;
+                case WindowState.Maximized:
                     renderForm.TopMost = false;
                     renderForm.FormBorderStyle = FormBorderStyle.FixedSingle;
                     renderForm.WindowState = FormWindowState.Maximized;
                     break;
-                case WindowState.Maximized:
-                    State = WindowState.FullScreen;
+                case WindowState.FullScreen:
                     renderForm.TopMost = true;
                     renderForm.FormBorderStyle = FormBorderStyle.None;
                     renderForm.WindowState = FormWindowState.Normal;
                     renderForm.WindowState = FormWindowState.Maximized;
                     break;
-                case WindowState.FullScreen:
-                    State = WindowState.Minimized;
-                    renderForm.TopMost = false;
-                    renderForm.FormBorderStyle = FormBorderStyle.FixedSingle;
-                    renderForm.WindowState = FormWindowState.Minimized;
-                    break;
             }
+        }
+
+        private void SetDimensions(int power)
+        {
+            power = Math.Min(2, Math.Max(power, 0));
+            Width = Screen.PrimaryScreen.Bounds.Width;
+            Height = Screen.PrimaryScreen.Bounds.Height;
+            int i = 0;
+            while (i < power)
+            {
+                if (Width % 2 != 0 || Height % 2 != 0)
+                    break;
+                Width /= 2;
+                Height /= 2;
+                i++;
+            }
+            ResolutionIndex = i;
+        }
+
+        private void ChangeResolution(int power)
+        {
+            double heightBefore = Height;
+            SetDimensions(power);
+            renderForm.Width = Width;
+            renderForm.Height = Height;
+            if (device != null)
+                DisposeDXGI();
+            InitializeDeviceResources();
+            if (RenderWithCPU) InitializeShaders2(); else InitializeShaders();
+            dbmp = new DirectBitmap(Width, Height);
+            td = new Texture2DDescription
+            {
+                Width = dbmp.Width,
+                Height = dbmp.Height,
+                ArraySize = 1,
+                BindFlags = BindFlags.ShaderResource,
+                Usage = ResourceUsage.Immutable,
+                CpuAccessFlags = CpuAccessFlags.None,
+                Format = Format.B8G8R8A8_UNorm,
+                MipLevels = 1,
+                OptionFlags = ResourceOptionFlags.None,
+                SampleDescription = new SampleDescription(1, 0),
+            };
+            Zoom *= heightBefore / Height;
+            Pan *= Height / heightBefore;
+        }
+
+        private void SwitchDevice()
+        {
+            RenderWithCPU = !RenderWithCPU;
+            if (RenderWithCPU) InitializeShaders2(); else InitializeShaders();
+            InitializeTriangle();
         }
 
         private void GetTime()
         {
             t2 = sw.ElapsedTicks;
-            if (!SkipFirst)
-                Time.Add(t2 - t1);
-            SkipFirst = false;
-            elapsedTime = (t2 - t1) / 10000000.0f;
+            elapsedTime = (t2 - t1) / 10000000.0;
+            fps.Add(elapsedTime);
             t1 = t2;
-            renderForm.Text = "DXMandelBrot   FPS: " + 1.0f / elapsedTime;
+            renderForm.Text = "DXMandelbrot   FPS: " + (1.0 / elapsedTime).ToString("0.00") + "   Iterations: " + Iterations + "   Zoom: " + Zoom * Height 
+                + "   Width: " + Width + "   Pan: " + new Double2(Pan.X + Width / 2, -Pan.Y - Height / 2) * Zoom;
+        }
+
+        private void ControlLoop()
+        {
+            t3 = sw.ElapsedTicks;
+            while (Running)
+            {
+                t4 = sw.ElapsedTicks;
+                while (10000000.0f / (t4 - t3) > 250.0f)
+                {
+                    t4 = sw.ElapsedTicks;
+                }
+                t3 = t4;
+                GetMouseData();
+                GetKeys();
+                UserInput();
+            }
         }
 
         public void UserInput()
         {
-            if (KeyDown(Key.Down))
-                SampleCount = Math.Max(--SampleCount, 1);
-            if (KeyDown(Key.Up))
-                SampleCount++;
+            if (KeyDown(Key.Tab))
+                ToDo.Enqueue(CycleWindowState);
+            if (!HasFocus)
+                return;
+
             if (KeyDown(Key.Left))
             {
-                ResolutionIndex++;
-                if (ResolutionIndex > Resolutions.Length - 1)
-                    ResolutionIndex = Resolutions.Length - 1;
-                else
-                {
-                    Width = Resolutions[ResolutionIndex][0];
-                    Height = Resolutions[ResolutionIndex][1];
-                    renderForm.Width = Width;
-                    renderForm.Height = Height;
-                    InitializeDeviceResources();
-                    if (RenderWithCPU) InitializeShaders2(); else InitializeShaders();
-                    dbmp = new DirectBitmap(Width, Height);
-                    td = new Texture2DDescription
-                    {
-                        Width = dbmp.Width,
-                        Height = dbmp.Height,
-                        ArraySize = 1,
-                        BindFlags = BindFlags.ShaderResource,
-                        Usage = ResourceUsage.Immutable,
-                        CpuAccessFlags = CpuAccessFlags.None,
-                        Format = Format.B8G8R8A8_UNorm,
-                        MipLevels = 1,
-                        OptionFlags = ResourceOptionFlags.None,
-                        SampleDescription = new SampleDescription(1, 0),
-                    };
-                }
+                ToDo.Enqueue(() => ChangeResolution(ResolutionIndex + 1));
             }
             if (KeyDown(Key.Right))
             {
-                ResolutionIndex--;
-                if (ResolutionIndex < 0)
-                    ResolutionIndex = 0;
-                else
-                {
-                    Width = Resolutions[ResolutionIndex][0];
-                    Height = Resolutions[ResolutionIndex][1];
-                    renderForm.Width = Width;
-                    renderForm.Height = Height;
-                    InitializeDeviceResources();
-                    if (RenderWithCPU) InitializeShaders2(); else InitializeShaders();
-                    dbmp = new DirectBitmap(Width, Height);
-                    td = new Texture2DDescription
-                    {
-                        Width = dbmp.Width,
-                        Height = dbmp.Height,
-                        ArraySize = 1,
-                        BindFlags = BindFlags.ShaderResource,
-                        Usage = ResourceUsage.Immutable,
-                        CpuAccessFlags = CpuAccessFlags.None,
-                        Format = Format.B8G8R8A8_UNorm,
-                        MipLevels = 1,
-                        OptionFlags = ResourceOptionFlags.None,
-                        SampleDescription = new SampleDescription(1, 0),
-                    };
-                }
+                ToDo.Enqueue(() => ChangeResolution(ResolutionIndex - 1));
             }
             if (KeyDown(Key.Return))
             {
-                RenderWithCPU = !RenderWithCPU;
-                if (RenderWithCPU) InitializeShaders2(); else InitializeShaders();
-                InitializeTriangle();
+                ToDo.Enqueue(SwitchDevice);
             }
 
-            /*if (KeyDown(Key.Comma))
-                Itterations = Math.Max(Itterations - 10, 1);
-            if (KeyDown(Key.Period))
-                Itterations += 10;*/
+            System.Drawing.Rectangle rect = renderForm.ClientRectangle;
+            if (State != WindowState.FullScreen)
+                rect.Location = new System.Drawing.Point(renderForm.DesktopLocation.X + 8, renderForm.DesktopLocation.Y + 31);
+            MouseOnWindow = rect.Contains(CurrentMousePos.X, CurrentMousePos.Y);
 
-            if (ButtonHeld(0))
+            if (MouseOnWindow && ButtonDown(0))
             {
-                Pan.X = Math.Min(Math.Max(Pan.X - DeltaMousePos.X * Zoom, -3.0M / Zoom), 3.0M / Zoom);
-                Pan.Y = Math.Min(Math.Max(Pan.Y - DeltaMousePos.Y * Zoom, -2.0M / Zoom), 2.0M / Zoom);
+                StartingMousePos = CurrentMousePos;
+                StartingPan = Pan;
+                PanAllowed = true;
             }
-
-            if (DeltaMouseScroll != 0)
-                Zoom = Math.Min(Zoom * (decimal)Math.Pow(1.1, -DeltaMouseScroll), 2.0M);
-            Itterations = (int)(50.0 * Math.Pow(Math.Log(Width / (double)Zoom), 1.25));
-
-            if (KeyDown(Key.R))
+            else if (ButtonUp(0))
+                PanAllowed = false;
+            if (PanAllowed && ButtonHeld(0))
             {
-                Pan = new Decimal2 { X = -0.25M, Y = 0.0M };
-                Zoom = 2.0M;
+                // correct for rendersize vs size on display
+                Pan.X = StartingPan.X - (CurrentMousePos.X - StartingMousePos.X) * Width / renderForm.ClientSize.Width;
+                Pan.Y = StartingPan.Y - (CurrentMousePos.Y - StartingMousePos.Y) * Height / renderForm.ClientSize.Height;
+            }
+            else if (MouseOnWindow && DeltaMouseScroll != 0)
+            {
+                double zoomBefore = Zoom;
+                Zoom = Math.Max(Math.Min(Zoom * (double)Math.Pow(1.05, -DeltaMouseScroll), 2.0 / Height), 1.0 / 3000000000000.0 / Height);
+                Double2 offset = MouseScrollMode ? new Double2((CurrentMousePos.X - renderForm.Location.X) * Width / (double)renderForm.ClientSize.Width, 
+                    (CurrentMousePos.Y - renderForm.Location.Y) * Height / (double)renderForm.ClientSize.Height) : new Double2(0.5 * Width, 0.5 * Height);
+                Pan = (Pan + offset) * zoomBefore / Zoom - offset;
             }
 
-            if (KeyDown(Key.P))
+            if (KeyHeld(Key.Period))
+                IterationScale *= 1.01;
+            if (KeyHeld(Key.Comma))
+                IterationScale *= 1.0 / 1.01;
+
+            if (KeyHeld(Key.RightShift) && KeyDown(Key.R))
+            {
+                Pan = new Double2(-0.65 * Width, -0.5 * Height);
+                Zoom = 2.0 / Height;
+                IterationScale = 1.0;
+            }
+            else if (KeyDown(Key.R))
+            {
+                IterationScale = 1.0;
+                Zoom = 2.0 / Height;
+                Pan = new Double2(-0.5 * Width, -0.5 * Height) + new Double2(StartingPosition.X, -StartingPosition.Y) * Height / 2;
+                double zoomBefore = Zoom;
+                Zoom = StartingZoom / Height;
+                Double2 offset = new Double2(0.5 * Width, 0.5 * Height);
+                Pan = (Pan + offset) * zoomBefore / Zoom - offset;
+            }
+
+            // preferred iterations
+            Iterations = (int)((82.686213896 * Math.Pow(1 / Zoom / Height, 0.634440905501) + 97.3183020129) * renderForm.ClientSize.Height / 1440.0 * IterationScale);
+            if (Iterations < 0 || Iterations > 10000)
+                Iterations = 10000;
+
+            if (KeyDown(Key.T))
                 Test();
-                //Console.WriteLine(Zoom);
 
-            if (KeyDown(Key.LeftAlt))
-                OneFrame = !OneFrame;
-            if (KeyDown(Key.D))
-                Debug = !Debug;
+            if (KeyDown(Key.O))
+                OneFrameMode = !OneFrameMode;
+            if (KeyDown(Key.Space))
+                RenderOnce = true;
+            if (KeyDown(Key.M))
+                MouseScrollMode = !MouseScrollMode;
 
             if (KeyDown(Key.Escape))
-                Environment.Exit(0);
-
-            if (KeyDown(Key.Tab))
-                CycleWindowState();
+                Running = false;
         }
 
         public void OnUpdate()
         {
-            // vertex shader
-
-            //pixel shader
-            Decimal2 Offset = new Decimal2 { X = (decimal)Width / Height / 2.0M, Y = 0.5M };
+            int iterations = Iterations;
+            double zoom = Zoom;
+            Double2 pan = Pan;
             Parallel.For(0, Height, y =>
             {
+                double yy = y + 0.5;
                 for (int x = 0; x < Width; x++)
                 {
                     Color color = new Color();
-                    Decimal2 C = (new Decimal2 { X = (decimal)x / Height, Y = (decimal)y / Height } - Offset) * Zoom + Pan;
-                    Decimal2 v = C;
+                    Double2 C = (new Double2(x + 0.5, yy) + pan) * zoom;
 
-                    int prevItteration = Itterations;
-
-                    for (int i = 0; i < prevItteration; i++)
+                    double y2 = C.Y * C.Y;
+                    double xt = (C.X - 0.25);
+                    double q = xt * xt + y2;
+                    if ((q * (q + xt) <= 0.25 * y2) || (C.X + 1) * (C.X + 1) + y2 <= 0.0625)
                     {
-                        v = new Decimal2 { X = (v.X * v.X) - (v.Y * v.Y), Y = v.X * v.Y * 2.0M } + C;
+                        dbmp.SetPixel(x, y, Color.Black);
+                        continue;
+                    }
 
-                        if ((prevItteration == Itterations) && ((v.X * v.X) + (v.Y * v.Y)) > 4.0M)
+                    Double2 v = C;
+                    for (int i = 0; i < iterations; i++)
+                    {
+                        v = new Double2(v.X * v.X - v.Y * v.Y, v.X * v.Y * 2.0) + C;
+
+                        if (v.X * v.X + v.Y * v.Y > 4.0)
                         {
-                            //float NIC = (float)((float)i - (Math.Log(Math.Log(Math.Sqrt((double)v.X * (double)v.X + (double)v.Y * (double)v.Y)))) / Math.Log(2.0)) / Itterations;
-                            //color += new Vector3((float)Math.Sin(NIC * Color.X), (float)Math.Sin(NIC * Color.Y), (float)Math.Sin(NIC * Color.Z));
-                            //int brightness = (int)((float)i / prevItteration * 255.0f);
-                            //color = new Color(brightness, brightness, brightness);
-                            int temp = (int)((float)Math.Sqrt((double)i / Itterations) * 255.0f);
-                            color = new Color(temp / 4, temp / 2, temp);
-                            prevItteration = i + 1;
+                            color = NICColor(i, iterations, v);
+                            break;
                         }
                     }
                     dbmp.SetPixel(x, y, color);
@@ -579,63 +637,41 @@ namespace DXMandelBrot
             });
         }
 
-        public void OnDebug()
+        private Color SqrtColor(int i, int iterations)
         {
-            Decimal2 Offset = new Decimal2 { X = (decimal)Width / Height / 2.0M, Y = 0.5M };
-            Parallel.For(0, Height, y =>
-            {
-                for (int x = 0; x < Width; x++)
-                {
-                    Vector3 color = new Vector3(0, 0, 0);
-                    for (int ys = 0; ys < SampleCount; ys++)
-                    {
-                        for (int xs = 0; xs < SampleCount; xs++)
-                        {
-                            Decimal2 C = (new Decimal2 { X = (x + (xs / (decimal)SampleCount)) / Height, Y = (y + (ys / (decimal)SampleCount)) / Height } - Offset) * Zoom + Pan;
-                            Decimal2 v = C;
+            int temp = (int)((float)Math.Sqrt((double)i / iterations) * 255.0f);
+            return new Color(temp / 4, temp / 2, temp);
+        }
 
-                            int prevItteration = Itterations;
-                            int i = 0;
-                            while (i < prevItteration)
-                            {
-                                v = new Decimal2 { X = (v.X * v.X) - (v.Y * v.Y), Y = v.X * v.Y * 2.0M } + C;
+        private Color NICColor(int i, int iterations, Double2 v)
+        {
+            float NIC = (float)(i + 1.0 - Math.Log(Math.Log(v.X * v.X + v.Y * v.Y) / 2.0 / Math.Log(2.0)) / Math.Log(2.0)) / 20.0f;
+            return new Color((float)Math.Sin(NIC * SelectedColor.X), (float)Math.Sin(NIC * SelectedColor.Y), (float)Math.Sin(NIC * SelectedColor.Z));
+        }
 
-                                i++;
-
-                                if ((prevItteration == Itterations) && ((v.X * v.X) + (v.Y * v.Y)) > 4.0M)
-                                {
-                                    //float t = (float)i / Itterations;
-                                    //color = new Vector3(t);
-                                    float NIC = (float)((float)i - (Math.Log(Math.Log(Math.Sqrt((double)v.X * (double)v.X + (double)v.Y * (double)v.Y)))) / Math.Log(2.0)) / Itterations;
-                                    color += new Vector3((float)Math.Sin(NIC * Color.X), (float)Math.Sin(NIC * Color.Y), (float)Math.Sin(NIC * Color.Z));
-                                    prevItteration = i + 1;
-                                }
-                            }
-                        }
-                    }
-                    color /= (float)SampleCount * SampleCount;
-                    Color col = new Color(color.X, color.Y, color.Z);
-                    dbmp.SetPixel(x, y, col);
-                }
-                Console.WriteLine("Finsihed row " + y + "/" + Height);
-            });
-            Console.WriteLine("Done!");
+        private Color BrightnessColor(int i, int iterations)
+        {
+            int brightness = (int)((float)i / iterations * 255.0f);
+            return new Color(brightness, brightness, brightness);
         }
 
         private void RenderCallBack()
         {
-            GetMouseData();
-            GetKeys();
-            UserInput();
-            if (!KeyDown(Key.Space) && OneFrame)
+            while (ToDo.Count > 0)
+                ToDo.Dequeue().Invoke();
+            ReassignWindowState();
+            if (!Running)
+                renderForm.Close();
+            if ((!RenderOnce && OneFrameMode) || !HasFocus)
                 return;
+            RenderOnce = false;
             if (RenderWithCPU) DrawCPU(); else DrawGPU();
             GetTime();
         }
 
         private void DrawCPU()
         {
-            if (Debug) OnDebug(); else OnUpdate();
+            OnUpdate();
             texture = new Texture2D(device, td, new DataRectangle(dbmp.BitsHandle.AddrOfPinnedObject(), Width * 4));
             ShaderResourceView textureView = new ShaderResourceView(device, texture);
             deviceContext.PixelShader.SetShaderResource(0, textureView);
@@ -657,15 +693,17 @@ namespace DXMandelBrot
             deviceContext.PixelShader.SetConstantBuffer(0, ShaderBufferInstance);
             ShaderBufferInstance.Dispose();
 
-            deviceContext.OutputMerger.SetRenderTargets(renderTargetView);
             deviceContext.InputAssembler.SetVertexBuffers(0, new VertexBufferBinding(triangleVertexBuffer, Utilities.SizeOf<Vector3>(), 0));
             deviceContext.Draw(vertices.Length, 0);
 
-            swapChain.Present(1, PresentFlags.None);
+            swapChain.Present(0, PresentFlags.None);
         }
 
         public void Run()
         {
+            Thread t = new Thread(() => ControlLoop());
+            t.Start();
+            t1 = sw.ElapsedTicks;
             RenderLoop.Run(renderForm, RenderCallBack);
         }
 
@@ -679,16 +717,25 @@ namespace DXMandelBrot
         {
             mouse.Dispose();
             keyboard.Dispose();
+            DisposeDXGI();
+            triangleVertexBuffer.Dispose();
+            renderForm.Dispose();
+        }
+
+        private void DisposeDXGI()
+        {
             device.Dispose();
             deviceContext.Dispose();
             swapChain.Dispose();
             renderTargetView.Dispose();
-            triangleVertexBuffer.Dispose();
             vertexShader.Dispose();
             pixelShader.Dispose();
-            inputLayout.Dispose();
             inputSignature.Dispose();
-            renderForm.Dispose();
+            inputLayout.Dispose();
+            dbmp.Dispose();
+            if (texture != null)
+                texture.Dispose();
+            GC.Collect();
         }
 
         private class Chey
@@ -788,9 +835,20 @@ namespace DXMandelBrot
         {
             public int X;
             public int Y;
+
+            public POINT(int x, int y)
+            {
+                X = x;
+                Y = y;
+            }
         }
 
         [DllImport("user32.dll")]
         private static extern bool GetCursorPos(out POINT lpPoint);
+
+        private static void print(object message)
+        {
+            Console.WriteLine(message.ToString());
+        }
     }
 }
