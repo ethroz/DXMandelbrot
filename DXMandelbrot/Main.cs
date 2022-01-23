@@ -9,6 +9,8 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
+using System.IO;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -230,12 +232,13 @@ namespace DXMandelBrot
 
         private void InitializeShaders()
         {
-            using (var vertexShaderByteCode = ShaderBytecode.CompileFromFile("Shaders.hlsl", "vertexShader", "vs_5_0", ShaderFlags.Debug))
+            string shader = File.ReadAllText(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location) + @"\Shaders.hlsl");
+            using (var vertexShaderByteCode = ShaderBytecode.Compile(shader, "vertexShader", "vs_5_0", ShaderFlags.OptimizationLevel3))
             {
                 inputSignature = ShaderSignature.GetInputSignature(vertexShaderByteCode);
                 vertexShader = new VertexShader(device, vertexShaderByteCode);
             }
-            using (var pixelShaderByteCode = ShaderBytecode.CompileFromFile("Shaders.hlsl", "pixelShader", "ps_5_0", ShaderFlags.Debug))
+            using (var pixelShaderByteCode = ShaderBytecode.CompileFromFile("Shaders.hlsl", "pixelShader", "ps_5_0", ShaderFlags.OptimizationLevel3))
             {
                 pixelShader = new PixelShader(device, pixelShaderByteCode);
             }
@@ -489,7 +492,7 @@ namespace DXMandelBrot
             elapsedTime = (t2 - t1) / 10000000.0;
             fps.Add(elapsedTime);
             t1 = t2;
-            renderForm.Text = "DXMandelbrot   FPS: " + (1.0 / elapsedTime).ToString("0.00") + "   Iterations: " + Iterations + "   Zoom: " + Zoom * Height 
+            renderForm.Text = "DXMandelbrot   FPS: " + (1.0 / elapsedTime).ToString("0.00") + "   Iterations: " + Iterations + "   Zoom: " + Zoom * Height
                 + "   Width: " + Width + "   Pan: " + new Double2(Pan.X + Width / 2, -Pan.Y - Height / 2) * Zoom;
         }
 
@@ -553,7 +556,7 @@ namespace DXMandelBrot
             {
                 double zoomBefore = Zoom;
                 Zoom = Math.Max(Math.Min(Zoom * (double)Math.Pow(1.05, -DeltaMouseScroll), 2.0 / Height), 1.0 / 3000000000000.0 / Height);
-                Double2 offset = MouseScrollMode ? new Double2((CurrentMousePos.X - renderForm.Location.X) * Width / (double)renderForm.ClientSize.Width, 
+                Double2 offset = MouseScrollMode ? new Double2((CurrentMousePos.X - renderForm.Location.X) * Width / (double)renderForm.ClientSize.Width,
                     (CurrentMousePos.Y - renderForm.Location.Y) * Height / (double)renderForm.ClientSize.Height) : new Double2(0.5 * Width, 0.5 * Height);
                 Pan = (Pan + offset) * zoomBefore / Zoom - offset;
             }
