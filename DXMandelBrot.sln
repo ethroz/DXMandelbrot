@@ -1,9 +1,11 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio Version 16
-VisualStudioVersion = 16.0.29025.244
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.32112.339
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DXMandelbrot", "DXMandelbrot\DXMandelbrot.csproj", "{777D8086-6976-482E-87FA-2335B3D66839}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DXMandelbrotAssembler", "DXMandelbrotAssembler\DXMandelbrotAssembler.csproj", "{A8BAACD9-8C81-455D-834A-89DB433FBDFD}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -11,10 +13,14 @@ Global
 		Release|Any CPU = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{777D8086-6976-482E-87FA-2335B3D66839}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{777D8086-6976-482E-87FA-2335B3D66839}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{777D8086-6976-482E-87FA-2335B3D66839}.Debug|Any CPU.ActiveCfg = Release|Any CPU
+		{777D8086-6976-482E-87FA-2335B3D66839}.Debug|Any CPU.Build.0 = Release|Any CPU
 		{777D8086-6976-482E-87FA-2335B3D66839}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{777D8086-6976-482E-87FA-2335B3D66839}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A8BAACD9-8C81-455D-834A-89DB433FBDFD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A8BAACD9-8C81-455D-834A-89DB433FBDFD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A8BAACD9-8C81-455D-834A-89DB433FBDFD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A8BAACD9-8C81-455D-834A-89DB433FBDFD}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

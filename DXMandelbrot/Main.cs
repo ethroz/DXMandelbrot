@@ -9,8 +9,6 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
-using System.IO;
-using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -90,7 +88,6 @@ namespace DXMandelBrot
         private bool HasFocus;
         private bool PanAllowed;
         private bool MouseScrollMode = false;
-        private List<double> fps = new List<double>();
 
         private Mouse mouse;
         private Button[] buttons;
@@ -102,13 +99,6 @@ namespace DXMandelBrot
 
         private void Test()
         {
-            double sum = 0.0;
-            foreach (double d in fps)
-            {
-                sum += d;
-            }
-            sum /= fps.Count;
-            print(1.0 / sum);
         }
 
         public Generator()
@@ -232,13 +222,12 @@ namespace DXMandelBrot
 
         private void InitializeShaders()
         {
-            string shader = File.ReadAllText(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location) + @"\Shaders.hlsl");
-            using (var vertexShaderByteCode = ShaderBytecode.Compile(shader, "vertexShader", "vs_5_0", ShaderFlags.OptimizationLevel3))
+            using (var vertexShaderByteCode = ShaderBytecode.Compile(Shaders.Shader1, "vertexShader", "vs_5_0", ShaderFlags.OptimizationLevel3))
             {
                 inputSignature = ShaderSignature.GetInputSignature(vertexShaderByteCode);
                 vertexShader = new VertexShader(device, vertexShaderByteCode);
             }
-            using (var pixelShaderByteCode = ShaderBytecode.CompileFromFile("Shaders.hlsl", "pixelShader", "ps_5_0", ShaderFlags.OptimizationLevel3))
+            using (var pixelShaderByteCode = ShaderBytecode.Compile(Shaders.Shader1, "pixelShader", "ps_5_0", ShaderFlags.OptimizationLevel3))
             {
                 pixelShader = new PixelShader(device, pixelShaderByteCode);
             }
@@ -264,12 +253,12 @@ namespace DXMandelBrot
 
         private void InitializeShaders2()
         {
-            using (var vertexShaderByteCode = ShaderBytecode.CompileFromFile("Shaders2.hlsl", "vertexShader", "vs_5_0", ShaderFlags.Debug))
+            using (var vertexShaderByteCode = ShaderBytecode.Compile(Shaders.Shader2, "vertexShader", "vs_5_0", ShaderFlags.Debug))
             {
                 inputSignature = ShaderSignature.GetInputSignature(vertexShaderByteCode);
                 vertexShader = new VertexShader(device, vertexShaderByteCode);
             }
-            using (var pixelShaderByteCode = ShaderBytecode.CompileFromFile("Shaders2.hlsl", "pixelShader", "ps_5_0", ShaderFlags.Debug))
+            using (var pixelShaderByteCode = ShaderBytecode.Compile(Shaders.Shader2, "pixelShader", "ps_5_0", ShaderFlags.Debug))
             {
                 pixelShader = new PixelShader(device, pixelShaderByteCode);
             }
@@ -490,7 +479,6 @@ namespace DXMandelBrot
         {
             t2 = sw.ElapsedTicks;
             elapsedTime = (t2 - t1) / 10000000.0;
-            fps.Add(elapsedTime);
             t1 = t2;
             renderForm.Text = "DXMandelbrot   FPS: " + (1.0 / elapsedTime).ToString("0.00") + "   Iterations: " + Iterations + "   Zoom: " + Zoom * Height
                 + "   Width: " + Width + "   Pan: " + new Double2(Pan.X + Width / 2, -Pan.Y - Height / 2) * Zoom;
