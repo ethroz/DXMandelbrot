@@ -65,8 +65,6 @@ namespace DXMandelBrot
         public bool Running = true;
         public bool RenderWithCPU = false;
         public double elapsedTime;
-        private bool OneFrameMode = false;
-        private bool RenderOnce = false;
         private System.Diagnostics.Stopwatch sw;
         private long t1, t2, t3, t4;
         private Vector3 SelectedColor = new Color(59, 131, 247).ToVector3();
@@ -80,8 +78,8 @@ namespace DXMandelBrot
         private int Height;
         public enum WindowState { Minimized, Normal, Maximized, FullScreen, NotSet };
         private WindowState prevState = WindowState.NotSet;
-        public WindowState State = WindowState.Maximized;
-        private int ResolutionIndex = 0;
+        public WindowState State = WindowState.Normal;
+        private int ResolutionIndex = 1;
         private Double2 StartingPan;
         private POINT StartingMousePos;
         private bool MouseOnWindow;
@@ -135,16 +133,16 @@ namespace DXMandelBrot
             switch (renderForm.WindowState)
             {
                 case FormWindowState.Minimized:
-                    State = WindowState.Minimized;
+                    ToDo.Enqueue(() => State = WindowState.Minimized);
                     break;
                 case FormWindowState.Normal:
-                    State = WindowState.Normal;
+                    ToDo.Enqueue(() => State = WindowState.Normal);
                     break;
                 case FormWindowState.Maximized:
                     if (renderForm.FormBorderStyle == FormBorderStyle.None)
-                        State = WindowState.FullScreen;
+                        ToDo.Enqueue(() => State = WindowState.FullScreen);
                     else
-                        State = WindowState.Maximized;
+                        ToDo.Enqueue(() => State = WindowState.Maximized);
                     break;
             }
         }
@@ -400,22 +398,19 @@ namespace DXMandelBrot
             switch (State)
             {
                 case WindowState.Minimized:
-                    renderForm.TopMost = false;
+                    renderForm.FormBorderStyle = FormBorderStyle.FixedSingle;
+                    renderForm.WindowState = FormWindowState.Normal;
                     renderForm.WindowState = FormWindowState.Minimized;
                     break;
                 case WindowState.Normal:
-                    renderForm.TopMost = false;
                     renderForm.FormBorderStyle = FormBorderStyle.FixedSingle;
-                    renderForm.WindowState = FormWindowState.Maximized;
                     renderForm.WindowState = FormWindowState.Normal;
                     break;
                 case WindowState.Maximized:
-                    renderForm.TopMost = false;
                     renderForm.FormBorderStyle = FormBorderStyle.FixedSingle;
                     renderForm.WindowState = FormWindowState.Maximized;
                     break;
                 case WindowState.FullScreen:
-                    renderForm.TopMost = true;
                     renderForm.FormBorderStyle = FormBorderStyle.None;
                     renderForm.WindowState = FormWindowState.Normal;
                     renderForm.WindowState = FormWindowState.Maximized;
@@ -479,8 +474,15 @@ namespace DXMandelBrot
         {
             t2 = sw.ElapsedTicks;
             elapsedTime = (t2 - t1) / 10000000.0;
+            if (elapsedTime < 0.004)
+                Thread.Sleep((int)(4.0 - elapsedTime * 1000));
+            while (elapsedTime < 0.004)
+            {
+                t2 = sw.ElapsedTicks;
+                elapsedTime = (t2 - t1) / 10000000.0;
+            }
             t1 = t2;
-            renderForm.Text = "DXMandelbrot   FPS: " + (1.0 / elapsedTime).ToString("0.00") + "   Iterations: " + Iterations + "   Zoom: " + Zoom * Height
+            renderForm.Text = "DXMandelbrot   " + (RenderWithCPU ? "CPU" : "GPU") + " FPS: " + (1.0 / elapsedTime).ToString("0.00") + "   Iterations: " + Iterations + "   Zoom: " + Zoom * Height
                 + "   Width: " + Width + "   Pan: " + new Double2(Pan.X + Width / 2, -Pan.Y - Height / 2) * Zoom;
         }
 
@@ -490,9 +492,13 @@ namespace DXMandelBrot
             while (Running)
             {
                 t4 = sw.ElapsedTicks;
-                while (10000000.0f / (t4 - t3) > 250.0f)
+                double elapsed = (t4 - t3) / 10000000.0;
+                if (elapsed < 0.004)
+                    Thread.Sleep((int)(4.0 - elapsed * 1000));
+                while (elapsed < 0.004)
                 {
                     t4 = sw.ElapsedTicks;
+                    elapsed = (t4 - t3) / 10000000.0;
                 }
                 t3 = t4;
                 GetMouseData();
@@ -537,57 +543,54 @@ namespace DXMandelBrot
             if (PanAllowed && ButtonHeld(0))
             {
                 // correct for rendersize vs size on display
-                Pan.X = StartingPan.X - (CurrentMousePos.X - StartingMousePos.X) * Width / renderForm.ClientSize.Width;
-                Pan.Y = StartingPan.Y - (CurrentMousePos.Y - StartingMousePos.Y) * Height / renderForm.ClientSize.Height;
+                double newPanx = StartingPan.X - (CurrentMousePos.X - StartingMousePos.X) * Width / renderForm.ClientSize.Width;
+                double newPany = StartingPan.Y - (CurrentMousePos.Y - StartingMousePos.Y) * Height / renderForm.ClientSize.Height;
+                ToDo.Enqueue(() => Pan = new Double2(newPanx, newPany));
             }
             else if (MouseOnWindow && DeltaMouseScroll != 0)
             {
                 double zoomBefore = Zoom;
-                Zoom = Math.Max(Math.Min(Zoom * (double)Math.Pow(1.05, -DeltaMouseScroll), 2.0 / Height), 1.0 / 3000000000000.0 / Height);
+                double zoomAfter = Math.Max(Math.Min(Zoom * (double)Math.Pow(1.05, -DeltaMouseScroll), 2.0 / Height), 1.0 / 3000000000000.0 / Height);
+                ToDo.Enqueue(() => Zoom = zoomAfter);
                 Double2 offset = MouseScrollMode ? new Double2((CurrentMousePos.X - renderForm.Location.X) * Width / (double)renderForm.ClientSize.Width,
                     (CurrentMousePos.Y - renderForm.Location.Y) * Height / (double)renderForm.ClientSize.Height) : new Double2(0.5 * Width, 0.5 * Height);
-                Pan = (Pan + offset) * zoomBefore / Zoom - offset;
+                Double2 newPan = (Pan + offset) * zoomBefore / zoomAfter - offset;
+                ToDo.Enqueue(() => Pan = newPan);
             }
 
             if (KeyHeld(Key.Period))
-                IterationScale *= 1.01;
+                ToDo.Enqueue(() => IterationScale *= 1.01);
             if (KeyHeld(Key.Comma))
-                IterationScale *= 1.0 / 1.01;
+                ToDo.Enqueue(() => IterationScale *= 1.0 / 1.01);
 
-            if (KeyHeld(Key.RightShift) && KeyDown(Key.R))
+            if (KeyHeld(Key.LeftShift) && KeyDown(Key.R))
             {
-                Pan = new Double2(-0.65 * Width, -0.5 * Height);
-                Zoom = 2.0 / Height;
-                IterationScale = 1.0;
+                ToDo.Enqueue(() => Pan = new Double2(-0.65 * Width, -0.5 * Height));
+                ToDo.Enqueue(() => Zoom = 2.0 / Height);
+                ToDo.Enqueue(() => IterationScale = 1.0);
             }
             else if (KeyDown(Key.R))
             {
-                IterationScale = 1.0;
-                Zoom = 2.0 / Height;
-                Pan = new Double2(-0.5 * Width, -0.5 * Height) + new Double2(StartingPosition.X, -StartingPosition.Y) * Height / 2;
-                double zoomBefore = Zoom;
-                Zoom = StartingZoom / Height;
+                ToDo.Enqueue(() => IterationScale = 1.0);
+                Double2 newPan = new Double2(-0.5 * Width, -0.5 * Height) + new Double2(StartingPosition.X, -StartingPosition.Y) * Height / 2;
+                double zoomBefore = 2.0 / Height;
+                double zoomAfter = StartingZoom / Height;
+                ToDo.Enqueue(() => Zoom = zoomAfter);
                 Double2 offset = new Double2(0.5 * Width, 0.5 * Height);
-                Pan = (Pan + offset) * zoomBefore / Zoom - offset;
+                newPan = (newPan + offset) * zoomBefore / zoomAfter - offset;
+                ToDo.Enqueue(() => Pan = newPan);
             }
-
-            // preferred iterations
-            Iterations = (int)((82.686213896 * Math.Pow(1 / Zoom / Height, 0.634440905501) + 97.3183020129) * renderForm.ClientSize.Height / 1440.0 * IterationScale);
-            if (Iterations < 0 || Iterations > 10000)
-                Iterations = 10000;
 
             if (KeyDown(Key.T))
                 Test();
 
-            if (KeyDown(Key.O))
-                OneFrameMode = !OneFrameMode;
-            if (KeyDown(Key.Space))
-                RenderOnce = true;
             if (KeyDown(Key.M))
                 MouseScrollMode = !MouseScrollMode;
 
             if (KeyDown(Key.Escape))
                 Running = false;
+            if (ToDo.Count > 0)
+                print(ToDo.Count);
         }
 
         public void OnUpdate()
@@ -648,16 +651,22 @@ namespace DXMandelBrot
 
         private void RenderCallBack()
         {
+            if (!Running)
+                renderForm.Close();
+
+            GetTime();
+            if (ToDo.Count == 0)
+                return;
             while (ToDo.Count > 0)
                 ToDo.Dequeue().Invoke();
             ReassignWindowState();
-            if (!Running)
-                renderForm.Close();
-            if ((!RenderOnce && OneFrameMode) || !HasFocus)
-                return;
-            RenderOnce = false;
+
+            // preferred iterations
+            Iterations = (int)((82.686213896 * Math.Pow(1 / Zoom / Height, 0.634440905501) + 97.3183020129) * renderForm.ClientSize.Height / 1440.0 * IterationScale);
+            if (Iterations < 0 || Iterations > 10000)
+                Iterations = 10000;
+
             if (RenderWithCPU) DrawCPU(); else DrawGPU();
-            GetTime();
         }
 
         private void DrawCPU()
