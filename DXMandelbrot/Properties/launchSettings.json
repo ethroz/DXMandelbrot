@@ -1,0 +1,13 @@
+{
+  "profiles": {
+    "DXMandelbrot": {
+      "commandName": "Project",
+      "nativeDebugging": true
+    },
+    "WSL": {
+      "commandName": "WSL2",
+      "environmentVariables": {},
+      "distributionName": ""
+    }
+  }
+}

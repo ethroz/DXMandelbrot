@@ -1,8 +1,8 @@
 ﻿//————————————————————————————–
-// Constant Buffer Variables
+// Buffers
 //————————————————————————————–
 
-cbuffer cbShaderParameters : register(b0)
+cbuffer ShaderParameters : register(b0)
 {
 	double2 Pan;
 	float3 Color;
@@ -10,26 +10,44 @@ cbuffer cbShaderParameters : register(b0)
 	double Zoom;
 	int Width;
 	int Height;
-	float ModdedTime;
+};
+
+Texture2D ShaderTexture : register(t0);
+SamplerState Sampler : register(s0);
+
+//————————————————————————————–
+// Structs
+//————————————————————————————–
+
+struct VertexShaderInput
+{
+	float4 position : POSITION;
+	float2 tex : TEXCOORD0;
+};
+
+struct VertexShaderOutput
+{
+	float4 position : SV_POSITION;
+	float2 tex : TEXCOORD0;
 };
 
 //————————————————————————————–
 // Methods
 //————————————————————————————–
 
-float rand(float2 p)
-{
-	float2 k = float2(
-		23.14069263277926, // e^pi (Gelfond's constant)
-		2.665144142690225 // 2^sqrt(2) (Gelfond–Schneider constant)
-		);
-	return frac(cos(dot(p, k)) * 12345.6789);
-}
-
-float random(float2 p)
-{
-	return rand(p.xy * (rand(p.xy * ModdedTime) - rand(rand(p.xy * ModdedTime) - ModdedTime)));
-}
+//float rand(float2 p)
+//{
+//	float2 k = float2(
+//		23.14069263277926, // e^pi (Gelfond's constant)
+//		2.665144142690225 // 2^sqrt(2) (Gelfond–Schneider constant)
+//		);
+//	return frac(cos(dot(p, k)) * 12345.6789);
+//}
+//
+//float random(float2 p)
+//{
+//	return rand(p.xy * (rand(p.xy * ModdedTime) - rand(rand(p.xy * ModdedTime) - ModdedTime)));
+//}
 
 float InvSqrt(float number)
 {
@@ -64,18 +82,30 @@ float3 HSVtoRGB(float3 HSV)
 // Vertex Shader
 //————————————————————————————–
 
-float4 vertexShader(float4 position : POSITION) : SV_POSITION
+VertexShaderOutput vertexShader(VertexShaderInput In)
 {
-	return position;
+	VertexShaderOutput Out;
+	Out.position = In.position;
+	Out.tex = In.tex;
+	return Out;
 }
 
 //————————————————————————————–
 // Pixel Shader
 //————————————————————————————–
 
-float3 pixelShader(float4 position : SV_POSITION) : SV_TARGET
+float3 pixelShader(VertexShaderOutput In) : SV_TARGET
 {
-	double2 C = (position.xy + Pan) * Zoom;
+	// cpu rendering
+	if (Width < 0)
+	{
+		return ShaderTexture.Sample(Sampler, In.tex).rgb;
+	}
+
+	// gpu rendering
+	float2 offset = { Width / 2, Height / 2 };
+	double2 C = (In.position.xy - offset) * Zoom / Height + Pan;
+
 	double y2 = C.y * C.y;
 	double xt = (C.x - 0.25);
 	double q = xt * xt + y2;
@@ -94,7 +124,7 @@ float3 pixelShader(float4 position : SV_POSITION) : SV_TARGET
 			//return HSVtoRGB(float3(temp, 1.0f, 1.0f));
 			//float temp = ismooth / Iterations;
 			//float temp = sqrt((float)i / Iterations);
-			//return float3(temp / 4, temp / 2, temp);// +((random(position.xy) - 0.5f) / 255.0f);
+			//return float3(temp / 4, temp / 2, temp);// +((random(In.position.xy) - 0.5f) / 255.0f);
 			float NIC = (float)(i + 1.0 - log(log((float)(v.x * v.x + v.y * v.y)) / 2.0f / log(2.0f)) / log(2.0f)) / 20.0f;
 			return float3((float)sin(NIC * Color.r), (float)sin(NIC * Color.g), (float)sin(NIC * Color.b));
 		}

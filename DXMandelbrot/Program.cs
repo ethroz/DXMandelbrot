@@ -1,16 +1,14 @@
 ﻿using System;
+using DXMandelbrot;
 
-namespace DXMandelBrot
+class Program
 {
-    class Program
+    [MTAThread]
+    static void Main()
     {
-        [STAThread]
-        static void Main(string[] args)
+        using (Generator gen = new Generator())
         {
-            using (Generator game = new Generator())
-            {
-                game.Run();
-            }
+            gen.Run();
         }
     }
 }
