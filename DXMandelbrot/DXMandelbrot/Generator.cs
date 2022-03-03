@@ -15,8 +15,6 @@ using Vortice.DirectInput;
 using Vortice.DXGI;
 using Vortice.Mathematics;
 using Win32;
-using static Vortice.D3DCompiler.Compiler;
-using static Vortice.Direct3D11.D3D11;
 
 namespace DXMandelbrot;
 
@@ -128,7 +126,7 @@ public class Generator : IDisposable
 #if DEBUG
         flags = DeviceCreationFlags.Debug;
 #endif
-        D3D11CreateDevice(null, DriverType.Hardware, flags, new FeatureLevel[] { FeatureLevel.Level_11_1 }, out ID3D11Device device0);
+        D3D11.D3D11CreateDevice(null, DriverType.Hardware, flags, new FeatureLevel[] { FeatureLevel.Level_11_1 }, out ID3D11Device device0);
         device = new ID3D11Device5(device0.NativePointer);
         context = device.ImmediateContext3;
         factory = device.QueryInterface<IDXGIDevice>().GetParent<IDXGIAdapter>().GetParent<IDXGIFactory5>();
@@ -180,7 +178,7 @@ public class Generator : IDisposable
              shader = reader.ReadToEnd();
         }
 
-        Compile(shader, null, null, "vertexShader", "VertexShader", "vs_5_0", ShaderFlags.OptimizationLevel3, out Blob shaderCode, out Blob errorCode);
+        Compiler.Compile(shader, null, null, "vertexShader", "VertexShader", "vs_5_0", ShaderFlags.OptimizationLevel3, out Blob shaderCode, out Blob errorCode);
         if (shaderCode == null)
             throw new Exception("HLSL vertex shader compilation error:\r\n" + Encoding.ASCII.GetString(errorCode.GetBytes()));
         vertexShader = device.CreateVertexShader(shaderCode);
@@ -191,7 +189,7 @@ public class Generator : IDisposable
 
         shaderCode.Dispose();
 
-        Compile(shader, null, null, "pixelShader", "PixelShader", "ps_5_0", ShaderFlags.OptimizationLevel3, out shaderCode, out errorCode);
+        Compiler.Compile(shader, null, null, "pixelShader", "PixelShader", "ps_5_0", ShaderFlags.OptimizationLevel3, out shaderCode, out errorCode);
         if (shaderCode == null)
             throw new Exception("HLSL pixel shader compilation error:\r\n" + Encoding.ASCII.GetString(errorCode.GetBytes()));
         pixelShader = device.CreatePixelShader(shaderCode);
