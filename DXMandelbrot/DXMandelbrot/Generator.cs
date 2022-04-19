@@ -134,12 +134,12 @@ public class Generator : IDisposable
 
         SwapChainDescription1 scd = new SwapChainDescription1()
         {
-            BufferCount = 1,
+            BufferCount = 2,
             Format = Format.R8G8B8A8_UNorm,
             Height = Height,
             Width = Width,
             SampleDescription = new SampleDescription(1, 0),
-            SwapEffect = SwapEffect.Discard,
+            SwapEffect = SwapEffect.FlipSequential,
             BufferUsage = Usage.RenderTargetOutput
         };
         swapChain = new IDXGISwapChain4(factory.CreateSwapChainForHwnd(device, window.Handle, scd).NativePointer);
@@ -157,7 +157,6 @@ public class Generator : IDisposable
         using (ID3D11Texture2D1 backBuffer = swapChain.GetBuffer<ID3D11Texture2D1>(0))
             renderTargetView = device.CreateRenderTargetView1(backBuffer);
         context.RSSetViewport(0, 0, Width, Height);
-        context.OMSetRenderTargets(renderTargetView);
     }
 
     private void InitializeVertices()
@@ -209,7 +208,7 @@ public class Generator : IDisposable
         context.PSSetSampler(0, device.CreateSamplerState(ssd));
 
         SetBufferValues();
-        sbdesc = new BufferDescription(AssignShaderBufferSize(), ResourceUsage.Default, BindFlags.ConstantBuffer, 0);
+        sbdesc = new BufferDescription(PackSize<ShaderBuffer>(), ResourceUsage.Default, BindFlags.ConstantBuffer, 0);
         ShaderBufferInstance = device.CreateBuffer(ref ShaderBuffer, sbdesc);
 
         quickBit = new QuickBitmap(Width, Height);
@@ -270,9 +269,9 @@ public class Generator : IDisposable
         context.PSSetConstantBuffer(0, ShaderBufferInstance);
     }
 
-    private int AssignShaderBufferSize()
+    private int PackSize<T>() where T : struct
     {
-        int size = Marshal.SizeOf<ShaderBuffer>();
+        int size = Marshal.SizeOf<T>();
         if (size / 16.0f != Math.Floor(size / 16.0f))
         {
             size += 16 - (size % 16);
@@ -627,6 +626,7 @@ public class Generator : IDisposable
                 SetTexture();
             }
 
+            context.OMSetRenderTargets(renderTargetView);
             context.Draw(vertices.Length, 0);
             swapChain.Present(1);
         }
@@ -676,7 +676,7 @@ public class Generator : IDisposable
         context.Release();
         device.Release();
         window.Dispose();
-}
+    }
 
     private class Chey
     {
